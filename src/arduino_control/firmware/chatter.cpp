@@ -1,5 +1,5 @@
 #include <ros.h>
-#include <std_msgs/Float32.h>
+#include <std_msgs/Float64.h>
 
 #include <Arduino.h>
 
@@ -22,9 +22,28 @@ int lastcount = 0;
 int currentcount = 0;
 double pose = 0;
 
-std_msgs::Float32 msg;
+std_msgs::Float64 msg;
 
 ros::Publisher chatter("x_pose", &msg);
+
+//Add subsriber for pid control
+
+void messageCb( const std_msgs::Float64& control_effort)
+{
+	if (control_effort < 0)
+	{
+		digitalWrite(togPin, LOW);
+		control_effort = -control_effort;
+		analogWrite(analogOutPin, control_effort);
+	}
+	if (control_effort > 0)
+	{
+		digitalWrite(togPin,HIGH);
+		analogWrite(analogOutPin, control_effort);
+	}
+}
+
+//ros::Subscriber<std_msgs::Empty> sub("control_effort", &messageCb );
  
 void init_as5134(void){
   digitalWrite(cs, LOW);
@@ -112,7 +131,7 @@ void loop() {
 	currentcount = read_as5134();
 	pose = pose + (static_cast<double>(currentcount)  - (double)(1.0*lastcount))/360 * 0.04;
 	lastcount = currentcount;
-	
+
 	msg.data = pose;
 	chatter.publish( &msg );
 	nh.spinOnce();
