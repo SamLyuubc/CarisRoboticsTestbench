@@ -8,5 +8,5 @@ add_definitions(-DUSB_CON)
 generate_arduino_firmware(hello
   SRCS chatter.cpp ${ROS_LIB_DIR}/time.cpp
   BOARD uno 
-  PORT /dev/ttyACM0
+  PORT /dev/ttyUSB0
 )

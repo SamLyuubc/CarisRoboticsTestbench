@@ -1,5 +1,6 @@
 #include <ros.h>
 #include <std_msgs/Float64.h>
+#include <std_msgs/Int32.h>
 
 #include <Arduino.h>
 
@@ -8,6 +9,8 @@ ros::NodeHandle nh;
 const int analogInPin = A0;  // Analog input pin that the potentiometer is attached to
 const int analogOutPin = 9; // Analog output pin that the LED is attached to
 const int togPin = 5; // enable locked-antiphase mode by applying HIGH to PWM pin and PWM to Dir pin
+const int zeroPin = 4;
+const int dirPin = 2;
 char incomingByte = 0;
  
 // Default pin9 output is 31KHz, good enough
@@ -18,32 +21,43 @@ int cs  = A3;
 int dio = A5;
 int clk = A4;
 int count = 0;
-int lastcount = 0;
-int currentcount = 0;
+long int ab_count = 0;
 double pose = 0;
+int currentcount, lastcount;
 
 std_msgs::Float64 msg;
+std_msgs::Int32 msg2;
 
 ros::Publisher chatter("x_pose", &msg);
+ros::Publisher chatter2("ab_count", &msg2);
+
 
 //Add subsriber for pid control
 
-void messageCb( const std_msgs::Float64& control_effort)
+void messageCb( const std_msgs::Int32& control_effort)
 {
-	if (control_effort < 0)
+	// if (control_effort < 0)
+	// {
+	// 	digitalWrite(togPin, LOW);
+	// 	control_effort = -control_effort;
+	// 	analogWrite(analogOutPin, control_effort);
+	// }
+	// if (control_effort > 0)
+	// {
+	// 	digitalWrite(togPin,HIGH);
+	// 	analogWrite(analogOutPin, control_effort);
+	// }
+	if (control_effort.data == 0)
 	{
 		digitalWrite(togPin, LOW);
-		control_effort = -control_effort;
-		analogWrite(analogOutPin, control_effort);
 	}
-	if (control_effort > 0)
+	if (control_effort.data == 1)
 	{
-		digitalWrite(togPin,HIGH);
-		analogWrite(analogOutPin, control_effort);
+		digitalWrite(togPin, HIGH);
 	}
 }
 
-//ros::Subscriber<std_msgs::Empty> sub("control_effort", &messageCb );
+ros::Subscriber<std_msgs::Int32> sub("direction", &messageCb );
  
 void init_as5134(void){
   digitalWrite(cs, LOW);
@@ -117,6 +131,8 @@ void setPwmFrequency(int pin, int divisor)
 void setup() {
 	// initialize serial communications at 9600 bps:
 	pinMode(togPin, OUTPUT);           // set pin to input
+	pinMode(dirPin, INPUT);
+	pinMode(zeroPin, INPUT);
 	setPwmFrequency(9, 1);
 	init_as5134();
 	Serial.begin(57600);
@@ -124,16 +140,56 @@ void setup() {
 
 	nh.initNode();
 	nh.advertise(chatter);
+	nh.advertise(chatter2);
+
+	lastcount = read_as5134();
+	currentcount = lastcount;
  
 }
  
 void loop() {
 	currentcount = read_as5134();
-	pose = pose + (static_cast<double>(currentcount)  - (double)(1.0*lastcount))/360 * 0.04;
+	//check for going forward
+	if (digitalRead(dirPin)==HIGH)
+	{
+		if (currentcount>lastcount)
+		{
+			//pose += (static_cast<double>(currentcount) - static_cast<double>(lastcount))/360*0.004;
+			ab_count = ab_count+ currentcount- lastcount;
+		}
+		if (currentcount<lastcount)
+		{
+			ab_count = ab_count + 360 - lastcount + currentcount;
+		}
+	}
+	if (digitalRead(dirPin)==LOW)
+	{
+		if (currentcount < lastcount)
+		{
+			ab_count = ab_count - (lastcount-currentcount);
+		}
+		if (currentcount > lastcount)
+		{
+			ab_count = ab_count-(lastcount+360-currentcount);
+		}
+	}
+
 	lastcount = currentcount;
 
+	if (digitalRead(zeroPin)==HIGH)
+	{
+		ab_count = 0;
+		currentcount = read_as5134();
+		lastcount = currentcount;
+	}
+
+	pose = static_cast<double>(ab_count)*0.4/360;
+
 	msg.data = pose;
+	msg2.data = ab_count;
 	chatter.publish( &msg );
+	chatter2.publish(&msg2);
+
 	nh.spinOnce();
 	//Serial.println(lastcount);  
 	delay(1);
@@ -147,25 +203,25 @@ void loop() {
 	// change the analog out value:
 	analogWrite(analogOutPin, outputValue);
 
-	if (Serial.available() > 0)
-	{
-		// read the incoming byte:
-		incomingByte = Serial.read();
+	// if (Serial.available() > 0)
+	// {
+	// 	// read the incoming byte:
+	// 	incomingByte = Serial.read();
 
-		// say what you got:
-		//  Serial.print(“I received: “);
-		//  Serial.println(incomingByte, DEC);
-		if (incomingByte == 'a')
-		{
-			digitalWrite(togPin, HIGH);
-			//Serial.print("Driving Forward.");
-		}
-		if (incomingByte == 'b')
-		{
-			digitalWrite(togPin, LOW);
-			//Serial.print("Driving Backward.");
-		}
-	}
+	// 	// say what you got:
+	// 	//  Serial.print(“I received: “);
+	// 	//  Serial.println(incomingByte, DEC);
+	// 	if (incomingByte == 'a')
+	// 	{
+	// 		digitalWrite(togPin, HIGH);
+	// 		//Serial.print("Driving Forward.");
+	// 	}
+	// 	if (incomingByte == 'b')
+	// 	{
+	// 		digitalWrite(togPin, LOW);
+	// 		//Serial.print("Driving Backward.");
+	// 	}
+	// }
 //Serial.print(digitalRead(togPin));
 // print the results to the Serial Monitor:
 //
